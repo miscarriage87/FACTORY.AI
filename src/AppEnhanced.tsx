@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './components/ui/card';
@@ -8,6 +9,69 @@ import { Badge } from './components/ui/badge';
 import { Separator } from './components/ui/separator';
 import { ScrollArea } from './components/ui/scroll-area';
 import { 
+  MessageCircle, 
+  Send, 
+  FileText, 
+  Settings, 
+  RefreshCw, 
+  Upload, 
+  Key, 
+  Save, 
+  Sparkles,
+  FileUp,
+  User,
+  Bot,
+  AlertTriangle,
+  Search,
+  Database,
+  CheckSquare,
+  FolderKanban,
+  Brain,
+  Calendar,
+  PlusCircle,
+  Edit,
+  Trash2,
+  Clock,
+  Tag,
+  Filter,
+  MoreHorizontal,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Star,
+  BookOpen,
+  Lightbulb,
+  Code,
+  FileQuestion
+} from 'lucide-react';
+import { format, parseISO, isToday, isYesterday, addDays } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
+
+// Services
+import getOpenAIService, { 
+  Message as OpenAIMessage, 
+  APIKeyError, 
+  RateLimitError, 
+  OpenAIServiceError 
+} from './services/openai';
+import agiCompanion, {
+  Message as AGIMessage,
+  Conversation,
+  Memory,
+  Task,
+  Project,
+  MeetingPreparation,
+  UserContext,
+  Entity
+} from './services/agiCompanionService';
+import getKnowledgeBaseService, {
+  SearchResult,
+  DocumentMetadata
+} from './services/knowledgeBase';
+import { getSettings, updateSettings } from './services/settings';
+
+// UI Components
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -31,78 +95,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select";
-import { Calendar } from "./components/ui/calendar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip";
+import { Checkbox } from "./components/ui/checkbox";
+import { Label } from "./components/ui/label";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./components/ui/accordion";
+import { Progress } from "./components/ui/progress";
+import { Calendar as CalendarComponent } from "./components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
-import { 
-  MessageCircle, 
-  Send, 
-  FileText, 
-  Settings, 
-  RefreshCw, 
-  Upload, 
-  Key, 
-  Save, 
-  Sparkles,
-  FileUp,
-  User,
-  Bot,
-  AlertTriangle,
-  Search,
-  BookOpen,
-  CheckSquare,
-  FolderKanban,
-  Brain,
-  Calendar as CalendarIcon,
-  Plus,
-  Trash2,
-  Edit,
-  MoreVertical,
-  Tag,
-  Clock,
-  Filter,
-  ChevronDown,
-  Info,
-  Lightbulb,
-  HelpCircle,
-  Star,
-  Zap,
-  Code,
-  Bookmark,
-  ArrowUpRight,
-  FileQuestion,
-  Video,
-  Database,
-  Layers,
-  PenTool,
-  Cpu,
-  LayoutGrid
-} from 'lucide-react';
-import { format, parseISO, isValid } from 'date-fns';
-import getOpenAIService, { 
-  Message as OpenAIMessage, 
-  APIKeyError, 
-  RateLimitError, 
-  OpenAIServiceError 
-} from './services/openai';
-import agiCompanion, {
-  Message as AGIMessage,
-  Conversation,
-  Memory,
-  Entity,
-  Task,
-  Project,
-  MeetingPreparation,
-  UserContext
-} from './services/agiCompanionService';
-import getKnowledgeBaseService, { 
-  SearchResult, 
-  DocumentMetadata,
-  KnowledgeBaseError
-} from './services/knowledgeBase';
-import { getSettings, updateSettings } from './services/settings';
+import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
+import { Switch } from "./components/ui/switch";
+import { toast, Toaster } from "./components/ui/toaster";
+import { useToast } from "./components/ui/use-toast";
 
-// Local message type definition (for UI)
-type Message = {
+// Enhanced message type with additional metadata
+type EnhancedMessage = {
   id: string;
   role: 'user' | 'assistant' | 'system' | 'function';
   content: string;
@@ -113,6 +129,23 @@ type Message = {
     arguments: Record<string, any>;
   };
   functionName?: string;
+  relatedMemories?: Memory[];
+  relatedDocuments?: SearchResult[];
+  relatedEntities?: Entity[];
+};
+
+// Enhanced conversation type
+type EnhancedConversation = {
+  id: string;
+  title: string;
+  messages: EnhancedMessage[];
+  created: Date;
+  lastUpdated: Date;
+  summary?: string;
+  topic?: string;
+  context?: string;
+  projectId?: string;
+  tags?: string[];
 };
 
 // Summary type definition
@@ -123,46 +156,52 @@ type Summary = {
   timestamp: Date;
 };
 
-// Knowledge search result type
-type KnowledgeResult = {
-  id: string;
-  title: string;
-  content: string;
-  type: string;
-  relevance: number;
-  timestamp: Date;
-};
-
-// Proactive suggestion type
+// Suggestion type
 type Suggestion = {
   id: string;
-  type: 'task' | 'knowledge' | 'meeting' | 'code' | 'reminder';
-  title: string;
+  type: 'task' | 'project' | 'research' | 'meeting' | 'reminder';
   content: string;
+  context?: string;
   timestamp: Date;
+  dismissed: boolean;
+  clicked: boolean;
   priority: 'low' | 'medium' | 'high';
   action?: () => void;
 };
 
+// Knowledge search result with enhanced metadata
+type EnhancedSearchResult = SearchResult & {
+  expanded?: boolean;
+  selected?: boolean;
+};
+
 function AppEnhanced() {
+  // Toast hook
+  const { toast } = useToast();
+  
   // Tab state
   const [activeTab, setActiveTab] = useState('chat');
   
-  // Settings and API states
+  // API and initialization states
   const [isApiKeySet, setIsApiKeySet] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [huggingfaceApiKey, setHuggingfaceApiKey] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-  const [isAGIInitialized, setIsAGIInitialized] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
   
-  // Chat states
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  // Chat and conversation states
+  const [conversations, setConversations] = useState<EnhancedConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [inputMessage, setInputMessage] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [showNewChat, setShowNewChat] = useState(false);
-  const [newChatTitle, setNewChatTitle] = useState('');
+  
+  // Knowledge base states
+  const [knowledgeQuery, setKnowledgeQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<EnhancedSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedDocuments, setSelectedDocuments] = useState<EnhancedSearchResult[]>([]);
   
   // Meeting summarizer states
   const [meetingText, setMeetingText] = useState('');
@@ -171,178 +210,239 @@ function AppEnhanced() {
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [summaryError, setSummaryError] = useState<string | null>(null);
   
-  // Knowledge base states
-  const [knowledgeQuery, setKnowledgeQuery] = useState('');
-  const [knowledgeResults, setKnowledgeResults] = useState<KnowledgeResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [selectedDocument, setSelectedDocument] = useState<KnowledgeResult | null>(null);
-  
-  // Task management states
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [taskFilter, setTaskFilter] = useState<{
-    status?: ('todo' | 'in_progress' | 'done' | 'cancelled')[];
-    priority?: ('low' | 'medium' | 'high' | 'urgent')[];
-    projectId?: string;
-    tags?: string[];
-  }>({});
-  const [newTask, setNewTask] = useState<Omit<Task, 'id'>>({
-    description: '',
-    status: 'todo',
-    priority: 'medium',
-    tags: []
-  });
-  const [showNewTask, setShowNewTask] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | null>(null);
-  
-  // Project management states
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [newProject, setNewProject] = useState<Omit<Project, 'id' | 'created' | 'lastUpdated' | 'tasks'>>({
-    name: '',
-    description: '',
-    status: 'active',
-    tags: []
-  });
-  const [showNewProject, setShowNewProject] = useState(false);
-  const [editingProject, setEditingProject] = useState<Project | null>(null);
-  
-  // Memory system states
-  const [memories, setMemories] = useState<Memory[]>([]);
-  const [memoryQuery, setMemoryQuery] = useState('');
-  const [isMemorySearching, setIsMemorySearching] = useState(false);
-  const [memoryInsights, setMemoryInsights] = useState<{
-    recentTopics: { topic: string; frequency: number }[];
-    importantEntities: Entity[];
-    userPreferences: Record<string, any>;
-  }>({
-    recentTopics: [],
-    importantEntities: [],
-    userPreferences: {}
-  });
-  
   // Meeting preparation states
   const [meetingPrep, setMeetingPrep] = useState<MeetingPreparation | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
-  const [newMeeting, setNewMeeting] = useState({
+  const [meetingPrepForm, setMeetingPrepForm] = useState({
     title: '',
     date: new Date(),
     participants: '',
     agenda: '',
     context: ''
   });
-  const [showNewMeeting, setShowNewMeeting] = useState(false);
   
-  // Proactive suggestions
+  // Task management states
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+  const [taskFilter, setTaskFilter] = useState<{
+    status?: ('todo' | 'in_progress' | 'done' | 'cancelled')[];
+    priority?: ('low' | 'medium' | 'high' | 'urgent')[];
+    projectId?: string;
+    tags?: string[];
+  }>({});
+  const [newTaskForm, setNewTaskForm] = useState({
+    description: '',
+    status: 'todo' as const,
+    priority: 'medium' as const,
+    dueDate: undefined as Date | undefined,
+    projectId: undefined as string | undefined,
+    tags: [] as string[]
+  });
+  const [showNewTaskForm, setShowNewTaskForm] = useState(false);
+  
+  // Project management states
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [newProjectForm, setNewProjectForm] = useState({
+    name: '',
+    description: '',
+    status: 'active' as const,
+    tags: [] as string[]
+  });
+  const [showNewProjectForm, setShowNewProjectForm] = useState(false);
+  
+  // Memory and insights states
+  const [memories, setMemories] = useState<Memory[]>([]);
+  const [isLoadingMemories, setIsLoadingMemories] = useState(false);
+  const [memoryQuery, setMemoryQuery] = useState('');
+  const [memoryInsights, setMemoryInsights] = useState<{
+    frequentTopics: { topic: string; frequency: number }[];
+    keyEntities: Entity[];
+    recentLearnings: Memory[];
+    topicClusters: { name: string; topics: string[]; count: number }[];
+  } | null>(null);
+  
+  // User context and preferences
+  const [userContext, setUserContext] = useState<UserContext | null>(null);
+  const [userPreferences, setUserPreferences] = useState({
+    enableProactiveSuggestions: true,
+    enableWebResearch: true,
+    enableCodeAnalysis: true,
+    communicationStyle: 'balanced',
+    learningStyle: 'visual',
+    workingHours: {
+      start: '09:00',
+      end: '17:00',
+      days: [1, 2, 3, 4, 5] // Monday to Friday
+    }
+  });
+  
+  // Suggestions
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(true);
   
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
+  // Current active conversation
+  const activeConversation = useMemo(() => {
+    return conversations.find(c => c.id === activeConversationId) || null;
+  }, [conversations, activeConversationId]);
+  
+  // Initialize AGI Companion and load data
+  useEffect(() => {
+    const initializeApp = async () => {
+      try {
+        // Check for saved API keys
+        const settings = await getSettings();
+        
+        if (settings.openaiApiKey) {
+          setApiKey(settings.openaiApiKey);
+          setIsApiKeySet(true);
+        }
+        
+        if (settings.huggingfaceApiKey) {
+          setHuggingfaceApiKey(settings.huggingfaceApiKey);
+        }
+        
+        // Initialize AGI Companion if API key is set
+        if (settings.openaiApiKey && !isInitialized && !isInitializing) {
+          setIsInitializing(true);
+          
+          // Initialize OpenAI service
+          const openAIService = getOpenAIService(settings.openaiApiKey);
+          
+          // Initialize AGI Companion
+          await agiCompanion.init();
+          
+          // Load conversations
+          const conversationsList = await agiCompanion.listConversations();
+          if (conversationsList.length > 0) {
+            // Load full conversation data for each conversation
+            const fullConversations: EnhancedConversation[] = [];
+            for (const conv of conversationsList.slice(0, 10)) { // Limit to 10 most recent
+              const fullConv = await agiCompanion.getConversation(conv.id);
+              if (fullConv) {
+                fullConversations.push({
+                  ...fullConv,
+                  messages: fullConv.messages.map(m => ({
+                    ...m,
+                    relatedMemories: [],
+                    relatedDocuments: [],
+                    relatedEntities: []
+                  }))
+                });
+              }
+            }
+            setConversations(fullConversations);
+            
+            // Set active conversation to the most recent one
+            if (fullConversations.length > 0) {
+              setActiveConversationId(fullConversations[0].id);
+            }
+          } else {
+            // Create a new conversation if none exist
+            const newConv = await agiCompanion.createConversation('New Conversation');
+            const welcomeMessage: AGIMessage = {
+              id: uuidv4(),
+              role: 'system',
+              content: 'Welcome to the AGI Companion! I\'m here to assist you with any questions or tasks. I have access to your knowledge base, can manage tasks and projects, and learn from our interactions to better assist you over time.',
+              timestamp: new Date()
+            };
+            await agiCompanion.addMessage(newConv.id, welcomeMessage);
+            
+            const fullConv = await agiCompanion.getConversation(newConv.id);
+            if (fullConv) {
+              setConversations([{
+                ...fullConv,
+                messages: fullConv.messages.map(m => ({
+                  ...m,
+                  relatedMemories: [],
+                  relatedDocuments: [],
+                  relatedEntities: []
+                }))
+              }]);
+              setActiveConversationId(newConv.id);
+            }
+          }
+          
+          // Load tasks
+          const tasksList = await agiCompanion.listTasks();
+          setTasks(tasksList);
+          
+          // Load projects
+          const projectsList = await agiCompanion.listProjects();
+          setProjects(projectsList);
+          
+          // Load user context
+          const context = await agiCompanion.loadUserContext();
+          setUserContext(context);
+          
+          setIsInitialized(true);
+          setIsInitializing(false);
+          
+          // Generate initial suggestions
+          generateSuggestions();
+        }
+      } catch (error) {
+        console.error('Failed to initialize app:', error);
+        setIsInitializing(false);
+        
+        // Show error toast
+        toast({
+          title: "Initialization Error",
+          description: "Failed to initialize the application. Please check your API keys and try again.",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    initializeApp();
+  }, [isApiKeySet, isInitialized]);
+  
   // Scroll to bottom of chat when messages change
   useEffect(() => {
-    if (messagesEndRef.current && activeConversation?.messages) {
+    if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [activeConversation?.messages]);
   
-  // Initialize AGI Companion and load data
-  useEffect(() => {
-    const initializeAGI = async () => {
-      try {
-        setIsInitializing(true);
-        
-        // Check for saved API key in localStorage
-        const savedApiKey = localStorage.getItem('openai-api-key');
-        if (savedApiKey) {
-          setApiKey(savedApiKey);
-          setIsApiKeySet(true);
-          
-          // Initialize OpenAI service with saved key
-          try {
-            const openAIService = getOpenAIService(savedApiKey);
-            await openAIService.testApiKey();
-            
-            // Initialize AGI Companion
-            await agiCompanion.init();
-            setIsAGIInitialized(true);
-            
-            // Load conversations
-            const conversationList = await agiCompanion.listConversations();
-            if (conversationList.length > 0) {
-              const conversations = await Promise.all(
-                conversationList.map(c => agiCompanion.getConversation(c.id))
-              );
-              setConversations(conversations.filter(Boolean) as Conversation[]);
-              
-              // Set active conversation to the most recent one
-              if (conversations[0]) {
-                setActiveConversation(conversations[0]);
-              }
-            } else {
-              // Create a new conversation if none exists
-              const newConversation = await agiCompanion.createConversation('New Conversation');
-              setConversations([newConversation]);
-              setActiveConversation(newConversation);
-            }
-            
-            // Load tasks
-            const tasksList = await agiCompanion.listTasks();
-            setTasks(tasksList);
-            
-            // Load projects
-            const projectsList = await agiCompanion.listProjects();
-            setProjects(projectsList);
-            
-            // Generate initial suggestions
-            generateProactiveSuggestions();
-          } catch (error) {
-            console.warn('Failed to initialize with saved key:', error);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to initialize AGI Companion:', error);
-      } finally {
-        setIsInitializing(false);
-      }
-    };
-    
-    initializeAGI();
-  }, []);
-  
-  // Function to save API key
-  const saveApiKey = async () => {
+  // Function to save API keys
+  const saveApiKeys = async () => {
     if (!apiKey.trim()) {
-      setApiKeyError('API key cannot be empty');
+      setApiKeyError('OpenAI API key cannot be empty');
       return;
     }
     
     setApiKeyError(null);
     
     try {
-      // Initialize and test the API key
+      // Initialize and test the OpenAI API key
       const openAIService = getOpenAIService(apiKey);
       await openAIService.testApiKey();
       
-      // If we get here, the key is valid
-      localStorage.setItem('openai-api-key', apiKey);
+      // Update settings
+      await updateSettings({
+        openaiApiKey: apiKey,
+        huggingfaceApiKey: huggingfaceApiKey || undefined
+      });
+      
       setIsApiKeySet(true);
       setShowSettings(false);
       
-      // Initialize AGI Companion if not already initialized
-      if (!isAGIInitialized) {
-        await agiCompanion.init();
-        setIsAGIInitialized(true);
-        
-        // Create a new conversation
-        const newConversation = await agiCompanion.createConversation('New Conversation');
-        setConversations([newConversation]);
-        setActiveConversation(newConversation);
-      }
+      // Show success toast
+      toast({
+        title: "Settings Saved",
+        description: "Your API keys have been saved successfully.",
+        variant: "default"
+      });
+      
+      // Reload the page to initialize with new keys
+      window.location.reload();
     } catch (error) {
       if (error instanceof APIKeyError) {
-        setApiKeyError('Invalid API key. Please check and try again.');
+        setApiKeyError('Invalid OpenAI API key. Please check and try again.');
       } else {
         setApiKeyError('Failed to validate API key. Please try again.');
         console.error('API key validation error:', error);
@@ -353,78 +453,110 @@ function AppEnhanced() {
   // Function to create a new conversation
   const createNewConversation = async () => {
     try {
-      const title = newChatTitle.trim() || 'New Conversation';
-      const newConversation = await agiCompanion.createConversation(title);
+      const newConv = await agiCompanion.createConversation('New Conversation');
+      const welcomeMessage: AGIMessage = {
+        id: uuidv4(),
+        role: 'system',
+        content: 'How can I assist you today?',
+        timestamp: new Date()
+      };
+      await agiCompanion.addMessage(newConv.id, welcomeMessage);
       
-      setConversations(prev => [newConversation, ...prev]);
-      setActiveConversation(newConversation);
-      setNewChatTitle('');
-      setShowNewChat(false);
+      const fullConv = await agiCompanion.getConversation(newConv.id);
+      if (fullConv) {
+        setConversations(prev => [{
+          ...fullConv,
+          messages: fullConv.messages.map(m => ({
+            ...m,
+            relatedMemories: [],
+            relatedDocuments: [],
+            relatedEntities: []
+          }))
+        }, ...prev]);
+        setActiveConversationId(newConv.id);
+        setActiveTab('chat');
+      }
     } catch (error) {
       console.error('Failed to create new conversation:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create a new conversation. Please try again.",
+        variant: "destructive"
+      });
     }
   };
   
   // Function to handle sending a message
   const sendMessage = async () => {
-    if (!inputMessage.trim() || !isApiKeySet || !activeConversation) return;
+    if (!inputMessage.trim() || !isApiKeySet || !activeConversationId) return;
+    
+    // Create a new user message
+    const userMessage: AGIMessage = {
+      id: uuidv4(),
+      role: 'user',
+      content: inputMessage,
+      timestamp: new Date()
+    };
+    
+    // Update UI immediately with the user message
+    setConversations(prev => prev.map(conv => 
+      conv.id === activeConversationId
+        ? {
+            ...conv,
+            messages: [...conv.messages, {
+              ...userMessage,
+              relatedMemories: [],
+              relatedDocuments: [],
+              relatedEntities: []
+            }],
+            lastUpdated: new Date()
+          }
+        : conv
+    ));
+    
+    setInputMessage('');
+    setIsChatLoading(true);
     
     try {
-      setIsChatLoading(true);
+      // Add message to conversation in AGI Companion
+      await agiCompanion.addMessage(activeConversationId, userMessage);
       
-      // Add user message to conversation
-      const userMessage: Omit<AGIMessage, 'id' | 'timestamp'> = {
-        role: 'user',
-        content: inputMessage
-      };
-      
-      const addedMessage = await agiCompanion.addMessage(activeConversation.id, userMessage);
-      
-      // Update active conversation with new message
-      setActiveConversation(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          messages: [...prev.messages, addedMessage],
-          lastUpdated: new Date()
-        };
-      });
-      
-      // Clear input
-      setInputMessage('');
-      
-      // Generate response
-      const response = await agiCompanion.generateResponse(activeConversation.id, {
-        systemPrompt: `You are an advanced AI assistant with access to a knowledge base and memory system.
-        Today is ${format(new Date(), 'MMMM d, yyyy')}.
-        Be helpful, accurate, and friendly. Use the context and memory provided to give personalized responses.`,
+      // Generate response with AGI Companion
+      const assistantMessage = await agiCompanion.generateResponse(activeConversationId, {
         temperature: 0.7
       });
       
-      // Update active conversation with response
-      setActiveConversation(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          messages: [...prev.messages, response],
-          lastUpdated: new Date()
-        };
-      });
+      // Get relevant memories and knowledge for this message
+      const relevantMemories = await agiCompanion.getRelevantMemories(userMessage.content, 3);
+      const knowledgeResults = await agiCompanion.searchKnowledgeBase(userMessage.content, 3);
       
-      // Update conversations list
-      setConversations(prev => {
-        const updatedConversations = prev.map(c => 
-          c.id === activeConversation.id 
-            ? { ...c, lastUpdated: new Date() } 
-            : c
-        );
-        return updatedConversations;
-      });
+      // Update UI with the assistant message and related information
+      setConversations(prev => prev.map(conv => 
+        conv.id === activeConversationId
+          ? {
+              ...conv,
+              messages: [...conv.messages.slice(0, -1), // Remove the user message we added earlier
+                {
+                  ...userMessage,
+                  relatedMemories: [],
+                  relatedDocuments: [],
+                  relatedEntities: []
+                },
+                {
+                  ...assistantMessage,
+                  relatedMemories: relevantMemories,
+                  relatedDocuments: knowledgeResults,
+                  relatedEntities: []
+                }],
+              lastUpdated: new Date()
+            }
+          : conv
+      ));
       
       // Generate new suggestions based on the conversation
-      generateProactiveSuggestions();
+      generateSuggestions();
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('Failed to get response:', error);
       
       // Create appropriate error message based on error type
       let errorMessage = 'Sorry, I encountered an error processing your request. Please try again later.';
@@ -435,25 +567,136 @@ function AppEnhanced() {
         errorMessage = 'You\'ve reached the rate limit for API requests. Please wait a moment and try again.';
       }
       
-      // Add error message to conversation
-      const errorAssistantMessage: Omit<AGIMessage, 'id' | 'timestamp'> = {
+      // Add error message to UI
+      const errorAssistantMessage: EnhancedMessage = {
+        id: uuidv4(),
         role: 'assistant',
-        content: errorMessage
+        content: errorMessage,
+        timestamp: new Date(),
+        relatedMemories: [],
+        relatedDocuments: [],
+        relatedEntities: []
       };
       
-      const addedErrorMessage = await agiCompanion.addMessage(activeConversation.id, errorAssistantMessage);
+      setConversations(prev => prev.map(conv => 
+        conv.id === activeConversationId
+          ? {
+              ...conv,
+              messages: [...conv.messages, errorAssistantMessage],
+              lastUpdated: new Date()
+            }
+          : conv
+      ));
       
-      // Update active conversation with error message
-      setActiveConversation(prev => {
-        if (!prev) return null;
-        return {
-          ...prev,
-          messages: [...prev.messages, addedErrorMessage],
-          lastUpdated: new Date()
-        };
+      // Show error toast
+      toast({
+        title: "Error",
+        description: "Failed to generate a response. Please try again.",
+        variant: "destructive"
       });
     } finally {
       setIsChatLoading(false);
+    }
+  };
+  
+  // Function to search knowledge base
+  const searchKnowledgeBase = async () => {
+    if (!knowledgeQuery.trim() || !isApiKeySet) return;
+    
+    setIsSearching(true);
+    
+    try {
+      const results = await agiCompanion.searchKnowledgeBase(knowledgeQuery, 10);
+      setSearchResults(results.map(r => ({ ...r, expanded: false })));
+    } catch (error) {
+      console.error('Failed to search knowledge base:', error);
+      toast({
+        title: "Search Error",
+        description: "Failed to search the knowledge base. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+  
+  // Function to toggle expansion of a search result
+  const toggleResultExpansion = (id: string) => {
+    setSearchResults(prev => prev.map(r => 
+      r.documentId === id ? { ...r, expanded: !r.expanded } : r
+    ));
+  };
+  
+  // Function to toggle selection of a search result
+  const toggleResultSelection = (id: string) => {
+    setSearchResults(prev => {
+      const updatedResults = prev.map(r => 
+        r.documentId === id ? { ...r, selected: !r.selected } : r
+      );
+      
+      // Update selected documents
+      setSelectedDocuments(updatedResults.filter(r => r.selected));
+      
+      return updatedResults;
+    });
+  };
+  
+  // Function to add selected documents to chat
+  const addSelectedDocumentsToChat = async () => {
+    if (!activeConversationId || selectedDocuments.length === 0) return;
+    
+    try {
+      // Create a system message with the selected documents
+      const documentsContent = selectedDocuments.map(doc => 
+        `Document: ${doc.title}\nContent: ${doc.content.substring(0, 500)}${doc.content.length > 500 ? '...' : ''}\n`
+      ).join('\n');
+      
+      const systemMessage: AGIMessage = {
+        id: uuidv4(),
+        role: 'system',
+        content: `I've added the following documents from the knowledge base for reference:\n\n${documentsContent}`,
+        timestamp: new Date()
+      };
+      
+      // Add message to conversation in AGI Companion
+      await agiCompanion.addMessage(activeConversationId, systemMessage);
+      
+      // Update UI
+      setConversations(prev => prev.map(conv => 
+        conv.id === activeConversationId
+          ? {
+              ...conv,
+              messages: [...conv.messages, {
+                ...systemMessage,
+                relatedMemories: [],
+                relatedDocuments: selectedDocuments,
+                relatedEntities: []
+              }],
+              lastUpdated: new Date()
+            }
+          : conv
+      ));
+      
+      // Clear selected documents
+      setSelectedDocuments([]);
+      setSearchResults(prev => prev.map(r => ({ ...r, selected: false })));
+      
+      // Switch to chat tab
+      setActiveTab('chat');
+      
+      // Show success toast
+      toast({
+        title: "Documents Added",
+        description: `Added ${selectedDocuments.length} document(s) to the conversation.`,
+        variant: "default"
+      });
+    } catch (error) {
+      console.error('Failed to add documents to chat:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add documents to the conversation. Please try again.",
+        variant: "destructive"
+      });
     }
   };
   
@@ -492,28 +735,6 @@ function AppEnhanced() {
       const result = await openAIService.summarizeMeeting(meetingText);
       
       setSummary(result);
-      
-      // Add to memory system
-      if (isAGIInitialized) {
-        await agiCompanion.addMemory({
-          type: 'fact',
-          content: `Meeting summary: ${result.summary}`,
-          source: 'meeting-summarizer',
-          confidence: 0.9,
-          tags: ['meeting', 'summary']
-        });
-        
-        // Add key points as separate memories
-        for (const point of result.keyPoints) {
-          await agiCompanion.addMemory({
-            type: 'fact',
-            content: point,
-            source: 'meeting-summarizer',
-            confidence: 0.85,
-            tags: ['meeting', 'key-point']
-          });
-        }
-      }
     } catch (error) {
       console.error('Failed to generate summary:', error);
       
@@ -530,1433 +751,1297 @@ function AppEnhanced() {
     }
   };
   
-  // Function to search knowledge base
-  const searchKnowledgeBase = async () => {
-    if (!knowledgeQuery.trim() || !isAGIInitialized) return;
-    
-    setIsSearching(true);
-    
-    try {
-      const results = await agiCompanion.searchKnowledgeBase(knowledgeQuery, 10);
-      
-      setKnowledgeResults(results.map(result => ({
-        id: result.documentId,
-        title: result.title,
-        content: result.content,
-        type: result.type,
-        relevance: result.relevance,
-        timestamp: new Date()
-      })));
-    } catch (error) {
-      console.error('Failed to search knowledge base:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-  
-  // Function to create a new task
-  const createTask = async () => {
-    if (!newTask.description.trim() || !isAGIInitialized) return;
-    
-    try {
-      const createdTask = await agiCompanion.createTask(newTask);
-      setTasks(prev => [createdTask, ...prev]);
-      setNewTask({
-        description: '',
-        status: 'todo',
-        priority: 'medium',
-        tags: []
-      });
-      setShowNewTask(false);
-    } catch (error) {
-      console.error('Failed to create task:', error);
-    }
-  };
-  
-  // Function to update a task
-  const updateTask = async (taskId: string, updates: Partial<Task>) => {
-    if (!isAGIInitialized) return;
-    
-    try {
-      const updatedTask = await agiCompanion.updateTask(taskId, updates);
-      if (updatedTask) {
-        setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
-      }
-    } catch (error) {
-      console.error('Failed to update task:', error);
-    }
-  };
-  
-  // Function to delete a task
-  const deleteTask = async (taskId: string) => {
-    if (!isAGIInitialized) return;
-    
-    try {
-      const success = await agiCompanion.deleteTask(taskId);
-      if (success) {
-        setTasks(prev => prev.filter(task => task.id !== taskId));
-      }
-    } catch (error) {
-      console.error('Failed to delete task:', error);
-    }
-  };
-  
-  // Function to create a new project
-  const createProject = async () => {
-    if (!newProject.name.trim() || !isAGIInitialized) return;
-    
-    try {
-      const createdProject = await agiCompanion.createProject(newProject);
-      setProjects(prev => [createdProject, ...prev]);
-      setNewProject({
-        name: '',
-        description: '',
-        status: 'active',
-        tags: []
-      });
-      setShowNewProject(false);
-      setActiveProject(createdProject);
-    } catch (error) {
-      console.error('Failed to create project:', error);
-    }
-  };
-  
-  // Function to update a project
-  const updateProject = async (projectId: string, updates: Partial<Project>) => {
-    if (!isAGIInitialized) return;
-    
-    try {
-      const updatedProject = await agiCompanion.updateProject(projectId, updates);
-      if (updatedProject) {
-        setProjects(prev => prev.map(project => project.id === projectId ? updatedProject : project));
-        
-        if (activeProject?.id === projectId) {
-          setActiveProject(updatedProject);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to update project:', error);
-    }
-  };
-  
-  // Function to delete a project
-  const deleteProject = async (projectId: string) => {
-    if (!isAGIInitialized) return;
-    
-    try {
-      const success = await agiCompanion.deleteProject(projectId);
-      if (success) {
-        setProjects(prev => prev.filter(project => project.id !== projectId));
-        
-        if (activeProject?.id === projectId) {
-          setActiveProject(null);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to delete project:', error);
-    }
-  };
-  
-  // Function to search memories
-  const searchMemories = async () => {
-    if (!memoryQuery.trim() || !isAGIInitialized) return;
-    
-    setIsMemorySearching(true);
-    
-    try {
-      const results = await agiCompanion.getRelevantMemories(memoryQuery, 20);
-      setMemories(results);
-    } catch (error) {
-      console.error('Failed to search memories:', error);
-    } finally {
-      setIsMemorySearching(false);
-    }
-  };
-  
   // Function to prepare for a meeting
   const prepareMeeting = async () => {
-    if (!newMeeting.title.trim() || !isAGIInitialized) return;
+    if (!meetingPrepForm.title || !isApiKeySet) return;
     
     setIsPreparing(true);
     
     try {
-      const participants = newMeeting.participants.split(',').map(p => p.trim()).filter(Boolean);
-      const agenda = newMeeting.agenda.split('\n').map(a => a.trim()).filter(Boolean);
-      
       const preparation = await agiCompanion.prepareMeeting({
-        title: newMeeting.title,
-        date: newMeeting.date,
-        participants,
-        agenda,
-        context: newMeeting.context
+        title: meetingPrepForm.title,
+        date: meetingPrepForm.date,
+        participants: meetingPrepForm.participants.split(',').map(p => p.trim()),
+        agenda: meetingPrepForm.agenda ? meetingPrepForm.agenda.split('\n').map(a => a.trim()) : undefined,
+        context: meetingPrepForm.context || undefined
       });
       
       setMeetingPrep(preparation);
-      setShowNewMeeting(false);
     } catch (error) {
       console.error('Failed to prepare for meeting:', error);
+      toast({
+        title: "Error",
+        description: "Failed to prepare for the meeting. Please try again.",
+        variant: "destructive"
+      });
     } finally {
       setIsPreparing(false);
     }
   };
   
-  // Function to generate proactive suggestions
-  const generateProactiveSuggestions = async () => {
-    if (!isAGIInitialized) return;
+  // Function to load tasks
+  const loadTasks = async () => {
+    setIsLoadingTasks(true);
     
     try {
-      // Get upcoming tasks
-      const upcomingTasks = tasks.filter(task => 
-        task.status === 'todo' && 
-        task.priority === 'high' || 
-        task.priority === 'urgent'
-      ).slice(0, 3);
-      
-      // Create suggestions from tasks
-      const taskSuggestions: Suggestion[] = upcomingTasks.map(task => ({
-        id: `task-${task.id}`,
-        type: 'task',
-        title: 'Priority Task',
-        content: task.description,
-        timestamp: new Date(),
-        priority: task.priority === 'urgent' ? 'high' : 'medium',
-        action: () => setActiveTab('tasks')
-      }));
-      
-      // Add project suggestions if there are active projects
-      const projectSuggestions: Suggestion[] = projects
-        .filter(project => project.status === 'active')
-        .slice(0, 2)
-        .map(project => ({
-          id: `project-${project.id}`,
-          type: 'reminder',
-          title: 'Active Project',
-          content: `Continue working on "${project.name}"`,
-          timestamp: new Date(),
-          priority: 'medium',
-          action: () => {
-            setActiveTab('projects');
-            setActiveProject(project);
-          }
-        }));
-      
-      // Add knowledge suggestions based on recent topics
-      const knowledgeSuggestions: Suggestion[] = [
-        {
-          id: `knowledge-1`,
-          type: 'knowledge',
-          title: 'Knowledge Exploration',
-          content: 'Explore your knowledge base to find relevant information for your current projects',
-          timestamp: new Date(),
-          priority: 'low',
-          action: () => setActiveTab('knowledge')
-        }
-      ];
-      
-      // Add code suggestion if there are code-related projects
-      const codeSuggestions: Suggestion[] = projects
-        .filter(project => project.tags?.includes('code') || project.tags?.includes('development'))
-        .slice(0, 1)
-        .map(project => ({
-          id: `code-${project.id}`,
-          type: 'code',
-          title: 'Code Analysis',
-          content: `Analyze code for "${project.name}" project`,
-          timestamp: new Date(),
-          priority: 'medium',
-          action: () => {
-            setActiveTab('projects');
-            setActiveProject(project);
-          }
-        }));
-      
-      // Combine all suggestions and limit to 5
-      const allSuggestions = [
-        ...taskSuggestions,
-        ...projectSuggestions,
-        ...knowledgeSuggestions,
-        ...codeSuggestions
-      ].slice(0, 5);
-      
-      setSuggestions(allSuggestions);
+      const tasksList = await agiCompanion.listTasks(taskFilter);
+      setTasks(tasksList);
     } catch (error) {
-      console.error('Failed to generate suggestions:', error);
+      console.error('Failed to load tasks:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load tasks. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingTasks(false);
+    }
+  };
+  
+  // Function to create a new task
+  const createTask = async () => {
+    if (!newTaskForm.description) return;
+    
+    try {
+      const task = await agiCompanion.createTask(newTaskForm);
+      setTasks(prev => [task, ...prev]);
+      
+      // Reset form
+      setNewTaskForm({
+        description: '',
+        status: 'todo',
+        priority: 'medium',
+        dueDate: undefined,
+        projectId: undefined,
+        tags: []
+      });
+      
+      setShowNewTaskForm(false);
+      
+      // Show success toast
+      toast({
+        title: "Task Created",
+        description: "New task has been created successfully.",
+        variant: "default"
+      });
+    } catch (error) {
+      console.error('Failed to create task:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create task. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to update a task
+  const updateTask = async (taskId: string, updates: Partial<Task>) => {
+    try {
+      const updatedTask = await agiCompanion.updateTask(taskId, updates);
+      if (updatedTask) {
+        setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
+        
+        // Show success toast
+        toast({
+          title: "Task Updated",
+          description: "Task has been updated successfully.",
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update task:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update task. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to delete a task
+  const deleteTask = async (taskId: string) => {
+    try {
+      const success = await agiCompanion.deleteTask(taskId);
+      if (success) {
+        setTasks(prev => prev.filter(t => t.id !== taskId));
+        
+        // Show success toast
+        toast({
+          title: "Task Deleted",
+          description: "Task has been deleted successfully.",
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete task. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to load projects
+  const loadProjects = async () => {
+    setIsLoadingProjects(true);
+    
+    try {
+      const projectsList = await agiCompanion.listProjects();
+      setProjects(projectsList);
+    } catch (error) {
+      console.error('Failed to load projects:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load projects. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  };
+  
+  // Function to create a new project
+  const createProject = async () => {
+    if (!newProjectForm.name) return;
+    
+    try {
+      const project = await agiCompanion.createProject(newProjectForm);
+      setProjects(prev => [project, ...prev]);
+      
+      // Reset form
+      setNewProjectForm({
+        name: '',
+        description: '',
+        status: 'active',
+        tags: []
+      });
+      
+      setShowNewProjectForm(false);
+      
+      // Show success toast
+      toast({
+        title: "Project Created",
+        description: "New project has been created successfully.",
+        variant: "default"
+      });
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create project. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to update a project
+  const updateProject = async (projectId: string, updates: Partial<Project>) => {
+    try {
+      const updatedProject = await agiCompanion.updateProject(projectId, updates);
+      if (updatedProject) {
+        setProjects(prev => prev.map(p => p.id === projectId ? updatedProject : p));
+        
+        // Show success toast
+        toast({
+          title: "Project Updated",
+          description: "Project has been updated successfully.",
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Failed to update project:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update project. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to delete a project
+  const deleteProject = async (projectId: string) => {
+    try {
+      const success = await agiCompanion.deleteProject(projectId);
+      if (success) {
+        setProjects(prev => prev.filter(p => p.id !== projectId));
+        
+        // Show success toast
+        toast({
+          title: "Project Deleted",
+          description: "Project has been deleted successfully.",
+          variant: "default"
+        });
+      }
+    } catch (error) {
+      console.error('Failed to delete project:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete project. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to search memories
+  const searchMemories = async () => {
+    if (!memoryQuery.trim()) return;
+    
+    setIsLoadingMemories(true);
+    
+    try {
+      const results = await agiCompanion.getRelevantMemories(memoryQuery, 10);
+      setMemories(results);
+    } catch (error) {
+      console.error('Failed to search memories:', error);
+      toast({
+        title: "Error",
+        description: "Failed to search memories. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingMemories(false);
+    }
+  };
+  
+  // Function to generate memory insights
+  const generateMemoryInsights = async () => {
+    try {
+      // This would be implemented in the AGI Companion service
+      // For now, we'll use mock data
+      setMemoryInsights({
+        frequentTopics: [
+          { topic: 'Machine Learning', frequency: 24 },
+          { topic: 'Software Development', frequency: 18 },
+          { topic: 'Data Science', frequency: 15 },
+          { topic: 'Project Management', frequency: 12 },
+          { topic: 'User Experience', frequency: 8 }
+        ],
+        keyEntities: userContext?.entities.slice(0, 5) || [],
+        recentLearnings: memories.slice(0, 3),
+        topicClusters: [
+          { name: 'AI Technologies', topics: ['Machine Learning', 'Neural Networks', 'NLP'], count: 42 },
+          { name: 'Development', topics: ['Software Development', 'Programming', 'DevOps'], count: 35 },
+          { name: 'Business', topics: ['Project Management', 'Marketing', 'Strategy'], count: 28 }
+        ]
+      });
+    } catch (error) {
+      console.error('Failed to generate memory insights:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate memory insights. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to update user preferences
+  const updateUserPreferences = async () => {
+    try {
+      // This would update the preferences in the AGI Companion service
+      // For now, we'll just update the local state
+      
+      // Show success toast
+      toast({
+        title: "Preferences Updated",
+        description: "Your preferences have been updated successfully.",
+        variant: "default"
+      });
+    } catch (error) {
+      console.error('Failed to update preferences:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update preferences. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  // Function to generate suggestions based on user context and current state
+  const generateSuggestions = () => {
+    // This would be more sophisticated in a real implementation
+    // For now, we'll generate some mock suggestions
+    
+    const newSuggestions: Suggestion[] = [
+      {
+        id: uuidv4(),
+        type: 'task',
+        content: 'Review project documentation',
+        context: 'Based on your recent conversations about documentation',
+        timestamp: new Date(),
+        dismissed: false,
+        clicked: false,
+        priority: 'medium',
+        action: () => {
+          setActiveTab('tasks');
+          setNewTaskForm({
+            ...newTaskForm,
+            description: 'Review project documentation',
+            priority: 'medium'
+          });
+          setShowNewTaskForm(true);
+        }
+      },
+      {
+        id: uuidv4(),
+        type: 'research',
+        content: 'Explore vector embeddings for knowledge base',
+        context: 'Related to your interest in AI and knowledge management',
+        timestamp: new Date(),
+        dismissed: false,
+        clicked: false,
+        priority: 'low',
+        action: () => {
+          setKnowledgeQuery('vector embeddings knowledge base');
+          setActiveTab('knowledge');
+          searchKnowledgeBase();
+        }
+      },
+      {
+        id: uuidv4(),
+        type: 'meeting',
+        content: 'Prepare for weekly team sync',
+        context: 'Scheduled for tomorrow',
+        timestamp: new Date(),
+        dismissed: false,
+        clicked: false,
+        priority: 'high',
+        action: () => {
+          setActiveTab('meetings');
+          setMeetingPrepForm({
+            ...meetingPrepForm,
+            title: 'Weekly Team Sync',
+            date: addDays(new Date(), 1),
+            participants: 'Team Members, Project Manager',
+            agenda: 'Project Updates\nBlockers\nNext Steps'
+          });
+        }
+      }
+    ];
+    
+    setSuggestions(prev => [...newSuggestions, ...prev.filter(s => !s.dismissed).slice(0, 2)]);
+  };
+  
+  // Function to dismiss a suggestion
+  const dismissSuggestion = (id: string) => {
+    setSuggestions(prev => prev.map(s => 
+      s.id === id ? { ...s, dismissed: true } : s
+    ).filter(s => !s.dismissed));
+  };
+  
+  // Function to handle suggestion click
+  const handleSuggestionClick = (suggestion: Suggestion) => {
+    // Mark as clicked
+    setSuggestions(prev => prev.map(s => 
+      s.id === suggestion.id ? { ...s, clicked: true } : s
+    ));
+    
+    // Execute the action if defined
+    if (suggestion.action) {
+      suggestion.action();
     }
   };
   
   // Function to format date for display
-  const formatDate = (date: Date | string | undefined): string => {
-    if (!date) return 'N/A';
-    
-    try {
-      const dateObj = typeof date === 'string' ? parseISO(date) : date;
-      return isValid(dateObj) ? format(dateObj, 'MMM d, yyyy') : 'Invalid date';
-    } catch (error) {
-      return 'Invalid date';
+  const formatDate = (date: Date) => {
+    if (isToday(date)) {
+      return `Today at ${format(date, 'h:mm a')}`;
+    } else if (isYesterday(date)) {
+      return `Yesterday at ${format(date, 'h:mm a')}`;
+    } else {
+      return format(date, 'MMM d, yyyy h:mm a');
     }
-  };
-  
-  // Function to format time for display
-  const formatTime = (date: Date | string | undefined): string => {
-    if (!date) return '';
-    
-    try {
-      const dateObj = typeof date === 'string' ? parseISO(date) : date;
-      return isValid(dateObj) ? format(dateObj, 'h:mm a') : '';
-    } catch (error) {
-      return '';
-    }
-  };
-  
-  // Render priority badge
-  const renderPriorityBadge = (priority: string) => {
-    let variant = 'outline';
-    switch (priority) {
-      case 'low':
-        variant = 'outline';
-        break;
-      case 'medium':
-        variant = 'secondary';
-        break;
-      case 'high':
-        variant = 'destructive';
-        break;
-      case 'urgent':
-        variant = 'destructive';
-        break;
-    }
-    
-    return (
-      <Badge variant={variant as any}>
-        {priority.charAt(0).toUpperCase() + priority.slice(1)}
-      </Badge>
-    );
-  };
-  
-  // Render status badge
-  const renderStatusBadge = (status: string) => {
-    let variant = 'outline';
-    switch (status) {
-      case 'todo':
-        variant = 'outline';
-        break;
-      case 'in_progress':
-        variant = 'secondary';
-        break;
-      case 'done':
-        variant = 'default';
-        break;
-      case 'cancelled':
-        variant = 'destructive';
-        break;
-    }
-    
-    const statusText = status === 'in_progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1);
-    
-    return (
-      <Badge variant={variant as any}>
-        {statusText}
-      </Badge>
-    );
-  };
-  
-  // Render loading or API key required state
-  const renderInitialState = () => {
-    if (isInitializing) {
-      return (
-        <div className="flex flex-col items-center justify-center h-[70vh]">
-          <RefreshCw className="h-12 w-12 text-primary animate-spin mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Initializing AGI Companion</h2>
-          <p className="text-muted-foreground">Please wait while we set up your AI assistant...</p>
-        </div>
-      );
-    }
-    
-    if (!isApiKeySet) {
-      return (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Key className="h-5 w-5" />
-              API Key Required
-            </CardTitle>
-            <CardDescription>
-              Please set your OpenAI API key to use the AGI Companion.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label htmlFor="api-key" className="text-sm font-medium">
-                  OpenAI API Key
-                </label>
-                <Input
-                  id="api-key"
-                  type="password"
-                  placeholder="sk-..."
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                />
-                {apiKeyError && (
-                  <p className="text-xs text-red-500">{apiKeyError}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Your API key is stored locally and never sent to our servers.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button onClick={saveApiKey} className="w-full">
-              <Save className="h-4 w-4 mr-2" />
-              Save API Key
-            </Button>
-          </CardFooter>
-        </Card>
-      );
-    }
-    
-    return null;
-  };
-  
-  // Render suggestions panel
-  const renderSuggestions = () => {
-    if (!showSuggestions || suggestions.length === 0) return null;
-    
-    return (
-      <Card className="mb-6">
-        <CardHeader className="pb-3">
-          <div className="flex justify-between items-center">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Lightbulb className="h-5 w-5 text-yellow-500" />
-              Suggestions
-            </CardTitle>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => setShowSuggestions(false)}
-              title="Hide suggestions"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-auto max-h-[200px]">
-            <div className="space-y-3">
-              {suggestions.map(suggestion => (
-                <div 
-                  key={suggestion.id} 
-                  className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer"
-                  onClick={() => suggestion.action && suggestion.action()}
-                >
-                  {suggestion.type === 'task' && <CheckSquare className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />}
-                  {suggestion.type === 'knowledge' && <BookOpen className="h-5 w-5 text-purple-500 shrink-0 mt-0.5" />}
-                  {suggestion.type === 'meeting' && <Calendar className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />}
-                  {suggestion.type === 'code' && <Code className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />}
-                  {suggestion.type === 'reminder' && <Clock className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />}
-                  
-                  <div className="flex-grow">
-                    <div className="flex justify-between items-start">
-                      <h4 className="font-medium text-sm">{suggestion.title}</h4>
-                      {renderPriorityBadge(suggestion.priority)}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">{suggestion.content}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </CardContent>
-      </Card>
-    );
   };
   
   return (
     <div className="flex min-h-screen bg-background p-4">
-      <div className="w-full max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-center space-x-2 mb-6">
-          <Cpu className="h-6 w-6 text-primary" />
-          <h1 className="text-2xl font-bold">AGI Companion</h1>
+      <Toaster />
+      <div className="w-full max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <Sparkles className="h-6 w-6 text-primary" />
+            <h1 className="text-2xl font-bold">AGI Companion</h1>
+          </div>
+          
+          {/* Suggestions */}
+          {userPreferences.enableProactiveSuggestions && suggestions.length > 0 && (
+            <div className="flex items-center space-x-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="relative">
+                    <Lightbulb className="h-4 w-4 mr-2" />
+                    Suggestions
+                    <Badge className="ml-2 absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0">
+                      {suggestions.length}
+                    </Badge>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-0" align="end">
+                  <div className="p-4 border-b">
+                    <h4 className="font-medium">Suggestions</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Based on your recent activity and preferences
+                    </p>
+                  </div>
+                  <ScrollArea className="h-[300px]">
+                    <div className="p-2">
+                      {suggestions.map(suggestion => (
+                        <div
+                          key={suggestion.id}
+                          className="p-3 mb-2 rounded-md border hover:bg-accent cursor-pointer"
+                          onClick={() => handleSuggestionClick(suggestion)}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                {suggestion.type === 'task' && <CheckSquare className="h-4 w-4 text-blue-500" />}
+                                {suggestion.type === 'project' && <FolderKanban className="h-4 w-4 text-green-500" />}
+                                {suggestion.type === 'research' && <Search className="h-4 w-4 text-purple-500" />}
+                                {suggestion.type === 'meeting' && <Calendar className="h-4 w-4 text-orange-500" />}
+                                {suggestion.type === 'reminder' && <Clock className="h-4 w-4 text-red-500" />}
+                                <span className="font-medium">{suggestion.content}</span>
+                              </div>
+                              {suggestion.context && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {suggestion.context}
+                                </p>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                dismissSuggestion(suggestion.id);
+                              }}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between mt-2">
+                            <Badge
+                              variant={
+                                suggestion.priority === 'high' ? 'destructive' :
+                                suggestion.priority === 'medium' ? 'default' : 'outline'
+                              }
+                              className="text-xs"
+                            >
+                              {suggestion.priority}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDate(suggestion.timestamp)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setShowSettings(true)}
+                title="Settings"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
         
-        {renderInitialState() || (
-          <>
-            {renderSuggestions()}
-            
-            <Tabs defaultValue="chat" value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-6 mb-6">
-                <TabsTrigger value="chat" className="flex items-center gap-2">
-                  <MessageCircle className="h-4 w-4" />
-                  Chat
-                </TabsTrigger>
-                <TabsTrigger value="knowledge" className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" />
-                  Knowledge
-                </TabsTrigger>
-                <TabsTrigger value="tasks" className="flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4" />
-                  Tasks
-                </TabsTrigger>
-                <TabsTrigger value="projects" className="flex items-center gap-2">
-                  <FolderKanban className="h-4 w-4" />
-                  Projects
-                </TabsTrigger>
-                <TabsTrigger value="memory" className="flex items-center gap-2">
-                  <Brain className="h-4 w-4" />
-                  Memory
-                </TabsTrigger>
-                <TabsTrigger value="summarizer" className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Summarizer
-                </TabsTrigger>
-              </TabsList>
-              
-              {/* Chat Tab Content */}
-              <TabsContent value="chat" className="space-y-4">
-                <div className="grid grid-cols-4 gap-4">
-                  {/* Conversations Sidebar */}
-                  <Card className="col-span-1 h-[75vh]">
-                    <CardHeader className="pb-3">
-                      <div className="flex justify-between items-center">
-                        <CardTitle className="text-base">Conversations</CardTitle>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => setShowNewChat(true)}
-                          title="New conversation"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="h-[calc(75vh-5rem)] overflow-hidden p-0">
-                      <ScrollArea className="h-full px-4">
-                        <div className="space-y-2 pb-4">
-                          {conversations.map(conversation => (
-                            <div
-                              key={conversation.id}
-                              className={`p-3 rounded-lg cursor-pointer ${
-                                activeConversation?.id === conversation.id
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'hover:bg-muted'
-                              }`}
-                              onClick={() => setActiveConversation(conversation)}
-                            >
-                              <div className="flex justify-between items-start">
-                                <h3 className="font-medium text-sm truncate">
-                                  {conversation.title}
-                                </h3>
-                                <span className="text-xs opacity-70 whitespace-nowrap ml-2">
-                                  {formatDate(conversation.lastUpdated)}
-                                </span>
-                              </div>
-                              <p className="text-xs mt-1 opacity-70 truncate">
-                                {conversation.messages.length} messages
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                    </CardContent>
-                  </Card>
-                  
-                  {/* Chat Main Area */}
-                  <Card className="col-span-3 h-[75vh] flex flex-col">
-                    <CardHeader className="pb-3">
-                      <div className="flex justify-between items-center">
-                        <CardTitle className="text-lg">
-                          {activeConversation?.title || 'Chat'}
-                        </CardTitle>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setShowSettings(true)}
-                            title="Settings"
-                          >
-                            <Settings className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    
-                    <CardContent className="flex-grow overflow-hidden p-0">
-                      <ScrollArea className="h-[calc(75vh-11rem)] px-4">
-                        <div className="space-y-4 pb-4">
-                          {activeConversation?.messages.map((message) => (
-                            <div
-                              key={message.id}
-                              className={`flex ${
-                                message.role === 'user' ? 'justify-end' : 'justify-start'
-                              }`}
-                            >
-                              <div
-                                className={`flex max-w-[80%] rounded-lg p-3 ${
-                                  message.role === 'user'
-                                    ? 'bg-primary text-primary-foreground'
-                                    : message.role === 'system'
-                                    ? 'bg-muted text-muted-foreground'
-                                    : 'bg-secondary text-secondary-foreground'
-                                }`}
-                              >
-                                <div className="flex flex-col">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    {message.role === 'user' ? (
-                                      <User className="h-4 w-4" />
-                                    ) : message.role === 'assistant' ? (
-                                      <Bot className="h-4 w-4" />
-                                    ) : (
-                                      <AlertTriangle className="h-4 w-4" />
-                                    )}
-                                    <span className="text-xs font-medium">
-                                      {message.role === 'user'
-                                        ? 'You'
-                                        : message.role === 'assistant'
-                                        ? 'AGI Assistant'
-                                        : 'System'}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                                  <span className="text-xs opacity-70 mt-1 self-end">
-                                    {formatTime(message.timestamp)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                          <div ref={messagesEndRef} />
-                        </div>
-                      </ScrollArea>
-                    </CardContent>
-                    
-                    <CardFooter className="pt-3">
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          sendMessage();
-                        }}
-                        className="flex w-full items-center space-x-2"
-                      >
-                        <Input
-                          placeholder="Type your message..."
-                          value={inputMessage}
-                          onChange={(e) => setInputMessage(e.target.value)}
-                          disabled={isChatLoading || !activeConversation}
-                        />
-                        <Button
-                          type="submit"
-                          disabled={!inputMessage.trim() || isChatLoading || !activeConversation}
-                          className="shrink-0"
-                        >
-                          {isChatLoading ? (
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </form>
-                    </CardFooter>
-                  </Card>
-                </div>
+        <Tabs defaultValue="chat" value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-6 mb-6">
+            <TabsTrigger value="chat" className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4" />
+              Chat
+            </TabsTrigger>
+            <TabsTrigger value="knowledge" className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Knowledge
+            </TabsTrigger>
+            <TabsTrigger value="tasks" className="flex items-center gap-2">
+              <CheckSquare className="h-4 w-4" />
+              Tasks
+            </TabsTrigger>
+            <TabsTrigger value="projects" className="flex items-center gap-2">
+              <FolderKanban className="h-4 w-4" />
+              Projects
+            </TabsTrigger>
+            <TabsTrigger value="meetings" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Meetings
+            </TabsTrigger>
+            <TabsTrigger value="memory" className="flex items-center gap-2">
+              <Brain className="h-4 w-4" />
+              Memory
+            </TabsTrigger>
+          </TabsList>
+          
+          {/* Settings Dialog */}
+          {showSettings && (
+            <Dialog open={showSettings} onOpenChange={setShowSettings}>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    AGI Companion Settings
+                  </DialogTitle>
+                  <DialogDescription>
+                    Configure API keys and preferences for the AGI Companion.
+                  </DialogDescription>
+                </DialogHeader>
                 
-                {/* New Chat Dialog */}
-                <Dialog open={showNewChat} onOpenChange={setShowNewChat}>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>New Conversation</DialogTitle>
-                      <DialogDescription>
-                        Create a new conversation with your AGI assistant.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-2">
-                      <div className="space-y-2">
-                        <label htmlFor="chat-title" className="text-sm font-medium">
-                          Conversation Title
-                        </label>
-                        <Input
-                          id="chat-title"
-                          placeholder="E.g., Project Planning, Research, etc."
-                          value={newChatTitle}
-                          onChange={(e) => setNewChatTitle(e.target.value)}
-                        />
-                      </div>
+                <div className="space-y-6 py-4">
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">API Keys</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="openai-api-key">OpenAI API Key (Required)</Label>
+                      <Input
+                        id="openai-api-key"
+                        type="password"
+                        placeholder="sk-..."
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                      />
+                      {apiKeyError && (
+                        <p className="text-xs text-red-500">{apiKeyError}</p>
+                      )}
                     </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setShowNewChat(false)}>
-                        Cancel
-                      </Button>
-                      <Button onClick={createNewConversation}>
-                        Create Conversation
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-                
-                {/* Settings Dialog */}
-                <Dialog open={showSettings} onOpenChange={setShowSettings}>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Settings</DialogTitle>
-                      <DialogDescription>
-                        Configure your AGI Companion settings.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-2">
-                      <div className="space-y-2">
-                        <label htmlFor="settings-api-key" className="text-sm font-medium">
-                          OpenAI API Key
-                        </label>
-                        <Input
-                          id="settings-api-key"
-                          type="password"
-                          placeholder="sk-..."
-                          value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
-                        />
-                        {apiKeyError && (
-                          <p className="text-xs text-red-500">{apiKeyError}</p>
-                        )}
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="hf-api-key">Hugging Face API Key (Optional)</Label>
+                      <Input
+                        id="hf-api-key"
+                        type="password"
+                        placeholder="hf_..."
+                        value={huggingfaceApiKey}
+                        onChange={(e) => setHuggingfaceApiKey(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Used for local embeddings and additional AI capabilities.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-medium">Preferences</h3>
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="proactive-suggestions">Proactive Suggestions</Label>
                         <p className="text-xs text-muted-foreground">
-                          Your API key is stored locally and never sent to our servers.
+                          Allow the assistant to suggest tasks and actions
                         </p>
                       </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => {
-                        setShowSettings(false);
-                        setApiKeyError(null);
-                      }}>
-                        Cancel
-                      </Button>
-                      <Button onClick={saveApiKey}>
-                        Save Settings
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </TabsContent>
-              
-              {/* Knowledge Base Tab Content */}
-              <TabsContent value="knowledge" className="space-y-4">
-                <Card className="h-[75vh] flex flex-col">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <BookOpen className="h-5 w-5" />
-                      Knowledge Base
-                    </CardTitle>
-                    <CardDescription>
-                      Search your knowledge base for information and insights.
-                    </CardDescription>
-                  </CardHeader>
-                  
-                  <CardContent className="flex-grow overflow-hidden p-4">
-                    <div className="flex items-center space-x-2 mb-4">
-                      <Input
-                        placeholder="Search your knowledge base..."
-                        value={knowledgeQuery}
-                        onChange={(e) => setKnowledgeQuery(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && searchKnowledgeBase()}
+                      <Switch
+                        id="proactive-suggestions"
+                        checked={userPreferences.enableProactiveSuggestions}
+                        onCheckedChange={(checked) => setUserPreferences(prev => ({
+                          ...prev,
+                          enableProactiveSuggestions: checked
+                        }))}
                       />
-                      <Button 
-                        onClick={searchKnowledgeBase}
-                        disabled={!knowledgeQuery.trim() || isSearching}
-                      >
-                        {isSearching ? (
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Search className="h-4 w-4" />
-                        )}
-                      </Button>
                     </div>
                     
-                    <div className="grid grid-cols-3 gap-4 h-[calc(75vh-12rem)]">
-                      {/* Results List */}
-                      <div className="col-span-1 border rounded-lg overflow-hidden">
-                        <div className="p-3 bg-muted font-medium text-sm">
-                          Results ({knowledgeResults.length})
-                        </div>
-                        <ScrollArea className="h-[calc(75vh-14rem)]">
-                          <div className="p-2">
-                            {knowledgeResults.length === 0 ? (
-                              <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground">
-                                <Search className="h-8 w-8 mb-2 opacity-50" />
-                                <p>Search your knowledge base to find relevant information</p>
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                {knowledgeResults.map(result => (
-                                  <div
-                                    key={result.id}
-                                    className={`p-3 rounded-lg cursor-pointer ${
-                                      selectedDocument?.id === result.id
-                                        ? 'bg-primary text-primary-foreground'
-                                        : 'hover:bg-muted'
-                                    }`}
-                                    onClick={() => setSelectedDocument(result)}
-                                  >
-                                    <div className="flex items-start justify-between">
-                                      <h3 className="font-medium text-sm truncate">
-                                        {result.title}
-                                      </h3>
-                                      <Badge variant="outline" className="ml-2 shrink-0">
-                                        {result.type}
-                                      </Badge>
-                                    </div>
-                                    <p className="text-xs mt-1 opacity-70 line-clamp-2">
-                                      {result.content.substring(0, 100)}...
-                                    </p>
-                                    <div className="flex justify-between items-center mt-2">
-                                      <span className="text-xs opacity-70">
-                                        {formatDate(result.timestamp)}
-                                      </span>
-                                      <Badge variant="secondary" className="text-xs">
-                                        {Math.round(result.relevance * 100)}% match
-                                      </Badge>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </ScrollArea>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="web-research">Web Research</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Enable web research capabilities
+                        </p>
                       </div>
-                      
-                      {/* Document Viewer */}
-                      <div className="col-span-2 border rounded-lg overflow-hidden">
-                        <div className="p-3 bg-muted font-medium text-sm flex justify-between items-center">
-                          <span>
-                            {selectedDocument ? selectedDocument.title : 'Document Viewer'}
-                          </span>
-                          {selectedDocument && (
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline">
-                                {selectedDocument.type}
-                              </Badge>
-                              <Button 
-                                variant="ghost" 
-                                size="icon"
-                                title="Add to conversation"
-                                onClick={() => {
-                                  if (activeConversation && selectedDocument) {
-                                    setInputMessage(prev => 
-                                      `${prev ? prev + '\n\n' : ''}I'm looking at this document: "${selectedDocument.title}". Can you help me understand it?`
-                                    );
-                                    setActiveTab('chat');
-                                  }
-                                }}
-                              >
-                                <MessageCircle className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                        <ScrollArea className="h-[calc(75vh-14rem)] p-4">
-                          {selectedDocument ? (
-                            <div className="space-y-4">
-                              <h2 className="text-xl font-semibold">
-                                {selectedDocument.title}
-                              </h2>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>{formatDate(selectedDocument.timestamp)}</span>
-                                <span>•</span>
-                                <span>{selectedDocument.type}</span>
-                              </div>
-                              <Separator />
-                              <div className="whitespace-pre-wrap">
-                                {selectedDocument.content}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
-                              <BookOpen className="h-12 w-12 mb-4 opacity-50" />
-                              <h3 className="text-lg font-medium mb-2">No Document Selected</h3>
-                              <p>Select a document from the results to view its contents</p>
-                            </div>
-                          )}
-                        </ScrollArea>
-                      </div>
+                      <Switch
+                        id="web-research"
+                        checked={userPreferences.enableWebResearch}
+                        onCheckedChange={(checked) => setUserPreferences(prev => ({
+                          ...prev,
+                          enableWebResearch: checked
+                        }))}
+                      />
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              {/* Tasks Tab Content */}
-              <TabsContent value="tasks" className="space-y-4">
-                <Card className="h-[75vh] flex flex-col">
-                  <CardHeader>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          <CheckSquare className="h-5 w-5" />
-                          Task Management
-                        </CardTitle>
-                        <CardDescription>
-                          Manage your tasks and track your progress.
-                        </CardDescription>
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="code-analysis">Code Analysis</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Enable code analysis and generation features
+                        </p>
                       </div>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => setShowNewTask(true)}
+                      <Switch
+                        id="code-analysis"
+                        checked={userPreferences.enableCodeAnalysis}
+                        onCheckedChange={(checked) => setUserPreferences(prev => ({
+                          ...prev,
+                          enableCodeAnalysis: checked
+                        }))}
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="communication-style">Communication Style</Label>
+                      <Select
+                        value={userPreferences.communicationStyle}
+                        onValueChange={(value) => setUserPreferences(prev => ({
+                          ...prev,
+                          communicationStyle: value
+                        }))}
                       >
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Task
-                      </Button>
+                        <SelectTrigger id="communication-style">
+                          <SelectValue placeholder="Select style" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="concise">Concise</SelectItem>
+                          <SelectItem value="balanced">Balanced</SelectItem>
+                          <SelectItem value="detailed">Detailed</SelectItem>
+                          <SelectItem value="technical">Technical</SelectItem>
+                          <SelectItem value="friendly">Friendly</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="learning-style">Learning Style</Label>
+                      <Select
+                        value={userPreferences.learningStyle}
+                        onValueChange={(value) => setUserPreferences(prev => ({
+                          ...prev,
+                          learningStyle: value
+                        }))}
+                      >
+                        <SelectTrigger id="learning-style">
+                          <SelectValue placeholder="Select style" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="visual">Visual</SelectItem>
+                          <SelectItem value="auditory">Auditory</SelectItem>
+                          <SelectItem value="reading">Reading/Writing</SelectItem>
+                          <SelectItem value="kinesthetic">Kinesthetic</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+                
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowSettings(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={saveApiKeys}>
+                    <Save className="h-4 w-4 mr-2" />
+                    Save Settings
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          
+          {/* Chat Tab Content */}
+          <TabsContent value="chat" className="space-y-4">
+            {!isApiKeySet ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    API Key Required
+                  </CardTitle>
+                  <CardDescription>
+                    Please set your OpenAI API key to use the AGI Companion.
+                  </CardDescription>
+                </CardHeader>
+                <CardFooter>
+                  <Button onClick={() => setShowSettings(true)} className="w-full">
+                    Open Settings
+                  </Button>
+                </CardFooter>
+              </Card>
+            ) : !isInitialized ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    Initializing AGI Companion
+                  </CardTitle>
+                  <CardDescription>
+                    Please wait while we initialize the AGI Companion...
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Progress value={45} className="w-full" />
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-4 gap-4">
+                {/* Conversation List */}
+                <Card className="col-span-1 h-[75vh]">
+                  <CardHeader className="p-4">
+                    <CardTitle className="text-lg flex items-center justify-between">
+                      <span>Conversations</span>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={createNewConversation}
+                        title="New Conversation"
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                      </Button>
+                    </CardTitle>
                   </CardHeader>
-                  
-                  <CardContent className="flex-grow overflow-hidden p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" className="h-8">
-                              <Filter className="h-3.5 w-3.5 mr-2" />
-                              Filter
-                              <ChevronDown className="h-3.5 w-3.5 ml-2" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuLabel>Status</DropdownMenuLabel>
-                            <DropdownMenuItem 
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                status: prev.status?.includes('todo') 
-                                  ? prev.status.filter(s => s !== 'todo') 
-                                  : [...(prev.status || []), 'todo']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.status?.includes('todo') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>Todo</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                status: prev.status?.includes('in_progress') 
-                                  ? prev.status.filter(s => s !== 'in_progress') 
-                                  : [...(prev.status || []), 'in_progress']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.status?.includes('in_progress') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>In Progress</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                status: prev.status?.includes('done') 
-                                  ? prev.status.filter(s => s !== 'done') 
-                                  : [...(prev.status || []), 'done']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.status?.includes('done') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>Done</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>Priority</DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                priority: prev.priority?.includes('urgent') 
-                                  ? prev.priority.filter(p => p !== 'urgent') 
-                                  : [...(prev.priority || []), 'urgent']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.priority?.includes('urgent') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>Urgent</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                priority: prev.priority?.includes('high') 
-                                  ? prev.priority.filter(p => p !== 'high') 
-                                  : [...(prev.priority || []), 'high']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.priority?.includes('high') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>High</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                priority: prev.priority?.includes('medium') 
-                                  ? prev.priority.filter(p => p !== 'medium') 
-                                  : [...(prev.priority || []), 'medium']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.priority?.includes('medium') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>Medium</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter(prev => ({
-                                ...prev, 
-                                priority: prev.priority?.includes('low') 
-                                  ? prev.priority.filter(p => p !== 'low') 
-                                  : [...(prev.priority || []), 'low']
-                              }))}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className={`w-3 h-3 rounded-full ${taskFilter.priority?.includes('low') ? 'bg-primary' : 'bg-muted'}`} />
-                                <span>Low</span>
-                              </div>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => setTaskFilter({})}
-                            >
-                              Clear All Filters
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        
-                        {(taskFilter.status?.length || taskFilter.priority?.length) ? (
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-8"
-                            onClick={() => setTaskFilter({})}
-                          >
-                            Clear Filters
-                          </Button>
-                        ) : null}
-                      </div>
-                      
-                      <div className="text-sm text-muted-foreground">
-                        {tasks.length} tasks total
-                      </div>
-                    </div>
-                    
-                    <ScrollArea className="h-[calc(75vh-14rem)]">
-                      <div className="space-y-3">
-                        {tasks.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground">
-                            <CheckSquare className="h-8 w-8 mb-2 opacity-50" />
-                            <p>No tasks yet. Create your first task to get started.</p>
+                  <CardContent className="p-2 overflow-hidden">
+                    <ScrollArea className="h-[calc(75vh-5rem)]">
+                      <div className="space-y-2 pr-2">
+                        {conversations.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>No conversations yet</p>
+                            <p className="text-xs mt-1">
+                              Start a new conversation to begin
+                            </p>
                           </div>
                         ) : (
-                          tasks
-                            .filter(task => {
-                              // Apply filters
-                              if (taskFilter.status?.length && !taskFilter.status.includes(task.status)) {
-                                return false;
-                              }
-                              if (taskFilter.priority?.length && !taskFilter.priority.includes(task.priority)) {
-                                return false;
-                              }
-                              if (taskFilter.projectId && task.projectId !== taskFilter.projectId) {
-                                return false;
-                              }
-                              if (taskFilter.tags?.length && !task.tags?.some(tag => taskFilter.tags?.includes(tag))) {
-                                return false;
-                              }
-                              return true;
-                            })
-                            .map(task => (
-                              <div
-                                key={task.id}
-                                className="p-4 border rounded-lg hover:bg-muted/50"
-                              >
-                                <div className="flex items-start justify-between">
-                                  <div className="flex-grow">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <input
-                                        type="checkbox"
-                                        checked={task.status === 'done'}
-                                        onChange={() => updateTask(task.id, {
-                                          status: task.status === 'done' ? 'todo' : 'done'
-                                        })}
-                                        className="h-4 w-4"
-                                      />
-                                      <span className={`font-medium ${task.status === 'done' ? 'line-through text-muted-foreground' : ''}`}>
-                                        {task.description}
-                                      </span>
-                                    </div>
-                                    
-                                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                                      {renderStatusBadge(task.status)}
-                                      {renderPriorityBadge(task.priority)}
-                                      
-                                      {task.dueDate && (
-                                        <Badge variant="outline" className="flex items-center gap-1">
-                                          <Clock className="h-3 w-3" />
-                                          {formatDate(task.dueDate)}
-                                        </Badge>
-                                      )}
-                                      
-                                      {task.projectId && (
-                                        <Badge variant="secondary" className="flex items-center gap-1">
-                                          <FolderKanban className="h-3 w-3" />
-                                          {projects.find(p => p.id === task.projectId)?.name || 'Project'}
-                                        </Badge>
-                                      )}
-                                      
-                                      {task.tags?.map(tag => (
-                                        <Badge key={tag} variant="outline" className="flex items-center gap-1">
-                                          <Tag className="h-3 w-3" />
-                                          {tag}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                                        <MoreVertical className="h-4 w-4" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem
-                                        onClick={() => setEditingTask(task)}
-                                      >
-                                        <Edit className="h-4 w-4 mr-2" />
-                                        Edit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        onClick={() => updateTask(task.id, {
-                                          status: 'in_progress'
-                                        })}
-                                      >
-                                        <Play className="h-4 w-4 mr-2" />
-                                        Start
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        onClick={() => updateTask(task.id, {
-                                          status: 'done'
-                                        })}
-                                      >
-                                        <CheckSquare className="h-4 w-4 mr-2" />
-                                        Complete
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        className="text-red-500"
-                                        onClick={() => deleteTask(task.id)}
-                                      >
-                                        <Trash2 className="h-4 w-4 mr-2" />
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
+                          conversations.map(conv => (
+                            <div
+                              key={conv.id}
+                              className={`p-3 rounded-md cursor-pointer transition-colors ${
+                                conv.id === activeConversationId
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'hover:bg-accent'
+                              }`}
+                              onClick={() => setActiveConversationId(conv.id)}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 truncate">
+                                  <p className="font-medium truncate">{conv.title}</p>
+                                  <p className="text-xs truncate opacity-80">
+                                    {conv.messages.length > 0
+                                      ? conv.messages[conv.messages.length - 1].content.substring(0, 40) + '...'
+                                      : 'No messages'}
+                                  </p>
                                 </div>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className={`h-6 w-6 ${
+                                        conv.id === activeConversationId
+                                          ? 'text-primary-foreground hover:bg-primary/90'
+                                          : 'text-muted-foreground'
+                                      }`}
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem>
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Rename
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem>
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
-                            ))
+                              <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs opacity-70">
+                                  {conv.messages.length} messages
+                                </span>
+                                <span className="text-xs opacity-70">
+                                  {formatDate(conv.lastUpdated)}
+                                </span>
+                              </div>
+                            </div>
+                          ))
                         )}
                       </div>
                     </ScrollArea>
                   </CardContent>
                 </Card>
                 
-                {/* New Task Dialog */}
-                <Dialog open={showNewTask} onOpenChange={setShowNewTask}>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>New Task</DialogTitle>
-                      <DialogDescription>
-                        Create a new task to track your work.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-2">
-                      <div className="space-y-2">
-                        <label htmlFor="task-description" className="text-sm font-medium">
-                          Description
-                        </label>
+                {/* Chat Area */}
+                <Card className="col-span-3 h-[75vh] flex flex-col">
+                  <CardHeader className="p-4 pb-2">
+                    <CardTitle className="text-lg flex items-center justify-between">
+                      <span>{activeConversation?.title || 'New Conversation'}</span>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={() => setActiveTab('knowledge')}
+                        >
+                          <Search className="h-4 w-4 mr-2" />
+                          Add Knowledge
+                        </Button>
+                      </div>
+                    </CardTitle>
+                    {activeConversation?.context && (
+                      <CardDescription>
+                        Context: {activeConversation.context}
+                      </CardDescription>
+                    )}
+                  </CardHeader>
+                  
+                  <CardContent className="flex-grow overflow-hidden p-4 pt-2">
+                    <ScrollArea className="h-[calc(75vh-10rem)]">
+                      <div className="space-y-4">
+                        {activeConversation?.messages.map((message) => (
+                          <div
+                            key={message.id}
+                            className={`flex ${
+                              message.role === 'user' ? 'justify-end' : 'justify-start'
+                            }`}
+                          >
+                            <div
+                              className={`flex max-w-[80%] rounded-lg p-3 ${
+                                message.role === 'user'
+                                  ? 'bg-primary text-primary-foreground'
+                                  : message.role === 'system'
+                                  ? 'bg-muted text-muted-foreground'
+                                  : 'bg-secondary text-secondary-foreground'
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-2 mb-1">
+                                  {message.role === 'user' ? (
+                                    <User className="h-4 w-4" />
+                                  ) : message.role === 'assistant' ? (
+                                    <Bot className="h-4 w-4" />
+                                  ) : (
+                                    <AlertTriangle className="h-4 w-4" />
+                                  )}
+                                  <span className="text-xs font-medium">
+                                    {message.role === 'user'
+                                      ? 'You'
+                                      : message.role === 'assistant'
+                                      ? 'AGI Companion'
+                                      : 'System'}
+                                  </span>
+                                </div>
+                                <p className="text-sm">{message.content}</p>
+                                
+                                {/* Related information */}
+                                {(message.relatedMemories?.length > 0 || message.relatedDocuments?.length > 0) && (
+                                  <Accordion type="single" collapsible className="mt-2">
+                                    <AccordionItem value="related-info">
+                                      <AccordionTrigger className="text-xs py-1">
+                                        Related Information
+                                      </AccordionTrigger>
+                                      <AccordionContent>
+                                        <div className="space-y-2 text-xs">
+                                          {message.relatedMemories?.length > 0 && (
+                                            <div>
+                                              <p className="font-medium">From Memory:</p>
+                                              <ul className="list-disc list-inside">
+                                                {message.relatedMemories.map((memory, idx) => (
+                                                  <li key={idx}>{memory.content}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          )}
+                                          
+                                          {message.relatedDocuments?.length > 0 && (
+                                            <div>
+                                              <p className="font-medium">From Knowledge Base:</p>
+                                              <ul className="list-disc list-inside">
+                                                {message.relatedDocuments.map((doc, idx) => (
+                                                  <li key={idx}>{doc.title}</li>
+                                                ))}
+                                              </ul>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  </Accordion>
+                                )}
+                                
+                                <span className="text-xs opacity-70 mt-1 self-end">
+                                  {formatDate(message.timestamp)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                  
+                  <CardFooter className="p-4 pt-2">
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        sendMessage();
+                      }}
+                      className="flex w-full items-center space-x-2"
+                    >
+                      <Input
+                        placeholder="Type your message..."
+                        value={inputMessage}
+                        onChange={(e) => setInputMessage(e.target.value)}
+                        disabled={isChatLoading || !activeConversationId}
+                      />
+                      <Button
+                        type="submit"
+                        disabled={!inputMessage.trim() || isChatLoading || !activeConversationId}
+                        className="shrink-0"
+                      >
+                        {isChatLoading ? (
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </form>
+                  </CardFooter>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
+          
+          {/* Knowledge Base Tab Content */}
+          <TabsContent value="knowledge" className="space-y-4">
+            {!isApiKeySet ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    API Key Required
+                  </CardTitle>
+                  <CardDescription>
+                    Please set your OpenAI API key to use the knowledge base.
+                  </CardDescription>
+                </CardHeader>
+                <CardFooter>
+                  <Button onClick={() => setShowSettings(true)} className="w-full">
+                    Open Settings
+                  </Button>
+                </CardFooter>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Database className="h-5 w-5" />
+                      Knowledge Base
+                    </CardTitle>
+                    <CardDescription>
+                      Search your knowledge base for information and add it to conversations.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center space-x-2">
                         <Input
-                          id="task-description"
-                          placeholder="What needs to be done?"
-                          value={newTask.description}
-                          onChange={(e) => setNewTask(prev => ({
-                            ...prev,
-                            description: e.target.value
-                          }))}
+                          placeholder="Search for information..."
+                          value={knowledgeQuery}
+                          onChange={(e) => setKnowledgeQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              searchKnowledgeBase();
+                            }
+                          }}
                         />
+                        <Button
+                          onClick={searchKnowledgeBase}
+                          disabled={!knowledgeQuery.trim() || isSearching}
+                        >
+                          {isSearching ? (
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Search className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label htmlFor="task-status" className="text-sm font-medium">
-                            Status
-                          </label>
-                          <Select
-                            value={newTask.status}
-                            onValueChange={(value) => setNewTask(prev => ({
-                              ...prev,
-                              status: value as any
-                            }))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="todo">Todo</SelectItem>
-                              <SelectItem value="in_progress">In Progress</SelectItem>
-                              <SelectItem value="done">Done</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <label htmlFor="task-priority" className="text-sm font-medium">
-                            Priority
-                          </label>
-                          <Select
-                            value={newTask.priority}
-                            onValueChange={(value) => setNewTask(prev => ({
-                              ...prev,
-                              priority: value as any
-                            }))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select priority" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="low">Low</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="high">High</SelectItem>
-                              <SelectItem value="urgent">Urgent</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <label htmlFor="task-due-date" className="text-sm font-medium">
-                          Due Date (Optional)
-                        </label>
-                        <Popover>
-                          <PopoverTrigger asChild>
+                      {selectedDocuments.length > 0 && (
+                        <div className="flex items-center justify-between bg-muted p-3 rounded-md">
+                          <span>
+                            {selectedDocuments.length} document{selectedDocuments.length !== 1 ? 's' : ''} selected
+                          </span>
+                          <div className="flex items-center space-x-2">
                             <Button
                               variant="outline"
-                              className="w-full justify-start text-left font-normal"
+                              size="sm"
+                              onClick={() => setSearchResults(prev => prev.map(r => ({ ...r, selected: false })))}
                             >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {newTask.dueDate ? format(newTask.dueDate, 'PPP') : <span>Pick a date</span>}
+                              Clear
                             </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0">
-                            <Calendar
-                              mode="single"
-                              selected={newTask.dueDate}
-                              onSelect={(date) => setNewTask(prev => ({
-                                ...prev,
-                                dueDate: date || undefined
-                              }))}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
+                            <Button
+                              size="sm"
+                              onClick={addSelectedDocumentsToChat}
+                              disabled={!activeConversationId}
+                            >
+                              Add to Chat
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       
-                      <div className="space-y-2">
-                        <label htmlFor="task-project" className="text-sm font-medium">
-                          Project (Optional)
-                        </label>
-                        <Select
-                          value={newTask.projectId}
-                          onValueChange={(value) => setNewTask(prev => ({
-                            ...prev,
-                            projectId: value
-                          }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select project" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="">None</SelectItem>
-                            {projects.map(project => (
-                              <SelectItem key={project.id} value={project.id}>
-                                {project.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <label htmlFor="task-tags" className="text-sm font-medium">
-                          Tags (Optional, comma-separated)
-                        </label>
-                        <Input
-                          id="task-tags"
-                          placeholder="e.g., work, personal, urgent"
-                          value={newTask.tags?.join(', ') || ''}
-                          onChange={(e) => setNewTask(prev => ({
-                            ...prev,
-                            tags: e.target.value.split(',').map(tag => tag.trim()).filter(Boolean)
-                          }))}
-                        />
+                      <div className="space-y-4">
+                        {searchResults.length > 0 ? (
+                          searchResults.map((result) => (
+                            <div
+                              key={result.documentId}
+                              className={`border rounded-md overflow-hidden ${
+                                result.selected ? 'border-primary' : ''
+                              }`}
+                            >
+                              <div
+                                className="p-4 cursor-pointer"
+                                onClick={() => toggleResultExpansion(result.documentId)}
+                              >
+                                <div className="flex items-start justify-between">
+                                  <div className="flex items-start space-x-3">
+                                    <Checkbox
+                                      checked={result.selected}
+                                      onCheckedChange={() => toggleResultSelection(result.documentId)}
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <div>
+                                      <h3 className="font-medium">{result.title}</h3>
+                                      <p className="text-sm text-muted-foreground">
+                                        {result.type} • Relevance: {result.relevance.toFixed(2)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center">
+                                    {result.expanded ? (
+                                      <ChevronDown className="h-4 w-4" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4" />
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="mt-2 text-sm line-clamp-2">
+                                  {result.content.substring(0, 200)}...
+                                </p>
+                              </div>
+                              
+                              {result.expanded && (
+                                <div className="p-4 pt-0 border-t">
+                                  <ScrollArea className="h-[200px]">
+                                    <div className="p-2">
+                                      <p className="text-sm whitespace-pre-line">
+                                        {result.content}
+                                      </p>
+                                    </div>
+                                  </ScrollArea>
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        ) : knowledgeQuery ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>No results found</p>
+                            <p className="text-xs mt-1">
+                              Try a different search query
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>Search your knowledge base</p>
+                            <p className="text-xs mt-1">
+                              Enter a query to find relevant information
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setShowNewTask(false)}>
-                        Cancel
-                      </Button>
-                      <Button 
-                        onClick={createTask}
-                        disabled={!newTask.description.trim()}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
+          
+          {/* Tasks Tab Content */}
+          <TabsContent value="tasks" className="space-y-4">
+            {!isApiKeySet ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    API Key Required
+                  </CardTitle>
+                  <CardDescription>
+                    Please set your OpenAI API key to use the task management features.
+                  </CardDescription>
+                </CardHeader>
+                <CardFooter>
+                  <Button onClick={() => setShowSettings(true)} className="w-full">
+                    Open Settings
+                  </Button>
+                </CardFooter>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <CheckSquare className="h-5 w-5" />
+                      Task Management
+                    </span>
+                    <Button onClick={() => setShowNewTaskForm(true)}>
+                      <PlusCircle className="h-4 w-4 mr-2" />
+                      New Task
+                    </Button>
+                  </CardTitle>
+                  <CardDescription>
+                    Manage your tasks and track progress on your projects.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {/* Task Filters */}
+                  <div className="flex items-center space-x-2 mb-4">
+                    <Select
+                      value={taskFilter.status?.join(',') || ''}
+                      onValueChange={(value) => {
+                        setTaskFilter(prev => ({
+                          ...prev,
+                          status: value ? value.split(',') as any : undefined
+                        }));
+                        loadTasks();
+                      }}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All Statuses</SelectItem>
+                        <SelectItem value="todo">To Do</SelectItem>
+                        <SelectItem value="in_progress">In Progress</SelectItem>
+                        <SelectItem value="done">Done</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    <Select
+                      value={taskFilter.priority?.join(',') || ''}
+                      onValueChange={(value) => {
+                        setTaskFilter(prev => ({
+                          ...prev,
+                          priority: value ? value.split(',') as any : undefined
+                        }));
+                        loadTasks();
+                      }}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by priority" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All Priorities</SelectItem>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    {projects.length > 0 && (
+                      <Select
+                        value={taskFilter.projectId || ''}
+                        onValueChange={(value) => {
+                          setTaskFilter(prev => ({
+                            ...prev,
+                            projectId: value || undefined
+                          }));
+                          loadTasks();
+                        }}
                       >
-                        Create Task
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-                
-                {/* Edit Task Dialog */}
-                <Dialog 
-                  open={!!editingTask} 
-                  onOpenChange={(open) => !open && setEditingTask(null)}
-                >
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Edit Task</DialogTitle>
-                      <DialogDescription>
-                        Update task details.
-                      </DialogDescription>
-                    </DialogHeader>
-                    {editingTask && (
-                      <div className="space-y-4 py-2">
-                        <div className="space-y-2">
-                          <label htmlFor="edit-task-description" className="text-sm font-medium">
-                            Description
-                          </label>
-                          <Input
-                            id="edit-task-description"
-                            value={editingTask.description}
-                            onChange={(e) => setEditingTask(prev => prev ? {
-                              ...prev,
-                              description: e.target.value
-                            } : null)}
-                          />
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <label htmlFor="edit-task-status" className="text-sm font-medium">
-                              Status
-                            </label>
-                            <Select
-                              value={editingTask.status}
-                              onValueChange={(value) => setEditingTask(prev => prev ? {
-                                ...prev,
-                                status: value as any
-                              } : null)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="todo">Todo</SelectItem>
-                                <SelectItem value="in_progress">In Progress</SelectItem>
-                                <SelectItem value="done">Done</SelectItem>
-                                <SelectItem value="cancelled">Cancelled</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <label htmlFor="edit-task-priority" className="text-sm font-medium">
-                              Priority
-                            </label>
-                            <Select
-                              value={editingTask.priority}
-                              onValueChange={(value) => setEditingTask(prev => prev ? {
-                                ...prev,
-                                priority: value as any
-                              } : null)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="low">Low</SelectItem>
-                                <SelectItem value="medium">Medium</SelectItem>
-                                <SelectItem value="high">High</SelectItem>
-                                <SelectItem value="urgent">Urgent</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <label htmlFor="edit-task-due-date" className="text-sm font-medium">
-                            Due Date
-                          </label>
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                className="w-full justify-start text-left font-normal"
-                              >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {editingTask.dueDate ? format(editingTask.dueDate, 'PPP') : <span>Pick a date</span>}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0">
-                              <Calendar
-                                mode="single"
-                                selected={editingTask.dueDate}
-                                onSelect={(date) => setEditingTask(prev => prev ? {
-                                  ...prev,
-                                  dueDate: date || undefined
-                                } : null)}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <label htmlFor="edit-task-project" className="text-sm font-medium">
-                            Project
-                          </label>
-                          <Select
-                            value={editingTask.projectId || ''}
-                            onValueChange={(value) => setEditingTask(prev => prev ? {
-                              ...prev,
-                              projectId: value || undefined
-                            } : null)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select project" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="">None</SelectItem>
-                              {projects.map(project => (
-                                <SelectItem key={project.id} value={project.id}>
-                                  {project.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <label htmlFor="edit-task-tags" className="text-sm font-medium">
-                            Tags (comma-separated)
-                          </label>
-                          <Input
-                            id="edit-task-tags"
-                            value={editingTask.tags?.join(', ') || ''}
-                            onChange={(e) => setEditingTask(prev => prev ? {
-                              ...prev,
-                              tags: e.target.value.split(',').map(tag => tag.trim()).filter(Boolean)
-                            } : null)}
-                          />
-                        </div>
-                      </div>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Filter by project" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">All Projects</SelectItem>
+                          {projects.map(project => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     )}
-                    <DialogFooter>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => setEdit
+                    
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={loadTasks}
+                      title="Refresh Tasks"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isLoadingTasks ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                  
+                  {/* Task List */}
+                  <div className="space-y-2">
+                    {tasks.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <CheckSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No tasks found</p>
+                        <p className="text-xs mt-1">
+                          Create a new task to get started
+                        </p>
+                      </div>
+                    ) : (
+                      tasks.map(task => (
+                        <div
+                          key={task.id}
+                          className="border rounded-md p-4 hover:bg-accent transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start space-x-3">
+                              <Checkbox
+                                checked={task.status === 'done'}
+                                onCheckedChange={(checked) => {
+                                  updateTask(task.id, {
+                                    status: checked ? 'done' : 'todo'
+                                  });
+                                }}
+                              />
+                              <div>
+                                <p className={`font-medium ${task.status === 'done' ? 'line-through text-muted-foreground' : ''}`}>
+                                  {task.description}
+                                </p>
+                                <div className="flex items-center space-x-2 mt-1">
+                                  <Badge
+                                    variant={
+                                      task.priority === 'urgent' ? 'destructive' :
+                                      task.priority === 'high' ? 'default' :
+                                      task.priority === 'medium' ? 'secondary' : 'outline'
+                                    }
+                                  >
+                                    {task.priority}
+                                  </Badge>
+                                  
+                                  <Badge variant="outline">
+                                    {task.status}
+                                  </Badge>
+                                  
+                                  {task.projectId && (
+                                    <Badge variant="outline" className="bg-primary/10">
+                                      {projects.find(p => p.id === task.projectId)?.name || 'Unknown Project'}
+                                    </Badge>
+                                  )}
+                                  
+                                  {task.dueDate && (
+                                    <span className={`text-xs ${
+                                      new Date() > task.dueDate ? 'text-red-500' : 'text-muted-foreground'
+                                    }`}>
+                                      Due: {format(task.dueDate, 'MMM d, yyyy')}
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {task.tags && task.tags.length > 0 && (
+                                  <div className="flex items-center space-x-1 mt-2">
+                                    <Tag className="h-3 w-3 text-muted-foreground" />
+                                    {task.tags.map((tag, idx) => (
+                                      <span key={idx}
