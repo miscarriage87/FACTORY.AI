@@ -28,7 +28,28 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.3.0",
-    "tailwindcss": "^4.1.7"
+    "tailwindcss": "^4.1.7",
+
+    /* --- Added for AGI-like capabilities --- */
+    "@pinecone-database/pinecone": "^3.2.1",
+    "@xenova/transformers": "^2.9.0",
+    "mammoth": "^1.4.24",
+    "xlsx": "^0.19.3",
+    "pdf-parse": "^1.1.1",
+    "csv-parse": "^5.5.4",
+    "@langchain/core": "^0.1.15",
+    "@langchain/openai": "^0.0.10",
+    "cheerio": "^1.0.0-rc.12",
+    "node-fetch": "^3.3.2",
+    "better-sqlite3": "^9.5.4",
+    "drizzle-orm": "^0.30.5",
+    "crypto-js": "^4.2.0",
+    "date-fns": "^3.6.0",
+    "remark": "^15.0.1",
+    "remark-html": "^16.0.1",
+    "@octokit/rest": "^20.1.0",
+    "file-type": "^19.0.0",
+    "mime-types": "^2.1.35"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.0",

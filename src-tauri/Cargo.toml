@@ -18,6 +18,31 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.5.0", features = ["dialog-all", "shell-open", "window-all"] }
 
+# --- Added for advanced AGI capabilities ---
+# Database & persistence
+rusqlite = { version = "0.31", features = ["bundled"] }
+# File processing
+lopdf = "0.32.0"
+calamine = "0.22.1"
+# Networking / HTTP
+reqwest = { version = "0.11", features = ["json"] }
+# Async runtime
+tokio = { version = "1.37", features = ["full"] }
+# Text & utility
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+# Security / Encryption
+sha2 = "0.10"
+base64 = "0.21"
+# Filesystem utilities
+walkdir = "2.5"
+# Date & time
+chrono = { version = "0.4", features = ["serde"] }
+# Error handling
+anyhow = "1"
+# GitHub API
+octocrab = "0.32"
+
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
